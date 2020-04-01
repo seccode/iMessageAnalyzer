@@ -1,4 +1,7 @@
 .DS_Store
 __pycache__
 test.py
-result.png
+keyword_freq.png
+contact_freq.png
+message_num.png
+message_len.png
