@@ -9,4 +9,5 @@ s = sqlObj()
 s.keywordFreq(["hey","yes"],number="+12345679012")
 ```
 ![alt text](sample.png)
+
 If the number argument is left blank, the frequency analysis will be performed on all numbers in the database
