@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as dates
 import datetime as dt
 from collections import defaultdict, OrderedDict
+import numpy as np
 
 class sqlObj:
     def __init__(self):
@@ -18,7 +19,7 @@ class sqlObj:
             assert type(number) == str, "Number must be a string"
             _ = self.curs.execute('select ROWID from handle where id="'+number+'"')
             ids = tuple([val[0] for val in self.curs.fetchall()])
-            assert len(ids) > 0, "Number not in database"
+            assert len(ids) > 0, "Number: {} not in database".format(number)
         else:
             _ = self.curs.execute('select ROWID from handle')
             ids = tuple([val[0] for val in self.curs.fetchall()])
@@ -80,69 +81,82 @@ class sqlObj:
     def compareMessageNums(self,number):
         _ = self.curs.execute('select ROWID from handle where id="'+number+'"')
         ids = tuple([val[0] for val in self.curs.fetchall()])
-        assert len(ids) > 0, "Number not in database"
+        assert len(ids) > 0, "Number: {} not in database".format(number)
 
         _ = self.curs.execute(
-            'select text, is_from_me from message where handle_id in '+str(ids))
+            'select datetime(message.date/1000000000 + strftime("%s", \
+                "2001-01-01") ,"unixepoch","localtime") as date_utc, \
+                text, is_from_me from message where handle_id in '+str(ids))
         rows = self.curs.fetchall()
-        tot = len(rows)
-        count = 0
+        new_rows = []
         for row in rows:
-            if row[1]:
-                count += 1
+            d = [int(v) for v in row[0].split(' ')[0].split('-')]
+            date = dt.date(*d)
+            new_rows.append([date,row[0],row[2]])
+        rows = sorted(new_rows)
+        res = {"Me": OrderedDict(), number: OrderedDict()}
+        me_count = 0
+        them_count = 0
+        for row in rows:
+            if row[2]:
+                me_count += 1
+                res["Me"][dates.date2num(row[0])] = me_count
+            else:
+                them_count += 1
+                res[number][dates.date2num(row[0])] = them_count
 
         fig, ax = plt.subplots()
-        plt.title("Number of Messages Comparison")
-        plt.xlabel("Number")
+        ax.xaxis.set_major_formatter(dates.DateFormatter("%Y-%m-%d"))
+
+        plt.title("Number of Messages over Time")
+        plt.xlabel("Date")
         plt.ylabel("# of Messages")
-        plt.bar(.25,count,.5,label="Me")
-        plt.bar(.75,tot - count,.5,label=number)
+        plt.plot(res["Me"].keys(),res["Me"].values(),label="Me")
+        plt.plot(res[number].keys(),res[number].values(),label=number)
         plt.legend()
         fig.tight_layout()
-        plt.tick_params(
-            axis='x',
-            which='both',
-            bottom=False,
-            top=False,
-            labelbottom=False)
         plt.savefig("message_num")
         plt.show()
 
     def compareMessageLengths(self,number):
         _ = self.curs.execute('select ROWID from handle where id="'+number+'"')
         ids = tuple([val[0] for val in self.curs.fetchall()])
-        assert len(ids) > 0, "Number not in database"
+        assert len(ids) > 0, "Number: {} not in database".format(number)
 
         _ = self.curs.execute(
-            'select text, is_from_me from message where handle_id in '+str(ids))
+            'select datetime(message.date/1000000000 + strftime("%s", \
+                "2001-01-01") ,"unixepoch","localtime") as date_utc, \
+                text, is_from_me from message where handle_id in '+str(ids))
         rows = self.curs.fetchall()
-        me = 0
-        them = 0
+        new_rows = []
         for row in rows:
-            if not row[0]:
-                continue
-            if row[1]:
-                me += len(row[0])
+            d = [int(v) for v in row[0].split(' ')[0].split('-')]
+            date = dt.date(*d)
+            new_rows.append([date, row[0], row[2]])
+        rows = sorted(new_rows)
+        res = {"Me": OrderedDict(), number: OrderedDict()}
+        me_count = 0
+        them_count = 0
+        for row in rows:
+            if row[2]:
+                me_count += len(row[1])
+                res["Me"][dates.date2num(row[0])] = me_count
             else:
-                them += len(row[0])
+                them_count += len(row[1])
+                res[number][dates.date2num(row[0])] = them_count
 
         fig, ax = plt.subplots()
-        plt.title("Length of Messages Comparison")
-        plt.xlabel("Number")
-        plt.ylabel("Total Messages Length")
-        plt.bar(.25, me, .5, label="Me")
-        plt.bar(.75, them, .5, label=number)
+        ax.xaxis.set_major_formatter(dates.DateFormatter("%Y-%m-%d"))
+
+        plt.title("Cumulative Length of Messages over Time")
+        plt.xlabel("Date")
+        plt.ylabel("Cumulative Length of Messages")
+        plt.plot(res["Me"].keys(), res["Me"].values(), label="Me")
+        plt.plot(res[number].keys(), res[number].values(), label=number)
         plt.legend()
         fig.tight_layout()
-        plt.tick_params(
-            axis='x',
-            which='both',
-            bottom=False,
-            top=False,
-            labelbottom=False)
         plt.savefig("message_len")
         plt.show()
-        return
 
     def getAllMessages(self):
         self.curs.execute(
@@ -157,7 +171,10 @@ class sqlObj:
 
 if __name__ == "__main__":
     s = sqlObj()
+    # s.keywordFreq(["hey"])
     s.kMostCommon(k=10)
+    # s.compareMessageNums("+12345678901")
+    # s.compareMessageLengths("+12345678901")
     #res = s.getAllMessages()
     
     
