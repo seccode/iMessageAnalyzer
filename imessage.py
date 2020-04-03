@@ -3,8 +3,10 @@ import sqlite3
 import matplotlib.pyplot as plt
 import matplotlib.dates as dates
 import datetime as dt
-from collections import defaultdict, OrderedDict
+from collections import defaultdict, OrderedDict, Counter
 import numpy as np
+import emoji
+from tabulate import tabulate
 
 class sqlObj:
     def __init__(self):
@@ -12,17 +14,22 @@ class sqlObj:
         con = sqlite3.connect(db)
         self.curs = con.cursor()
 
+    def getEmojis(self,s):
+        if not s:
+            return []
+        return [c for c in s if c in emoji.UNICODE_EMOJI]
+
     def keywordFreq(self,keywords,number=None):
         assert len(keywords) > 0, "No keywords entered"
 
         if number:
             assert type(number) == str, "Number must be a string"
             _ = self.curs.execute('select ROWID from handle where id="'+number+'"')
-            ids = tuple([val[0] for val in self.curs.fetchall()])
+            ids = [str(val[0]) for val in self.curs.fetchall()]
             assert len(ids) > 0, "Number: {} not in database".format(number)
         else:
             _ = self.curs.execute('select ROWID from handle')
-            ids = tuple([val[0] for val in self.curs.fetchall()])
+            ids = [str(val[0]) for val in self.curs.fetchall()]
             assert len(ids) > 0, "No numbers in database"
         
         main = dict.fromkeys(keywords)
@@ -31,7 +38,7 @@ class sqlObj:
             self.curs.execute(
                 'select datetime(message.date/1000000000 + strftime("%s", \
                 "2001-01-01") ,"unixepoch","localtime") as date_utc, \
-                text from message where handle_id in '+str(ids))
+                text from message where handle_id in ('+','.join(ids)+')')
 
             rows = self.curs.fetchall()
             for row in rows:
@@ -52,7 +59,7 @@ class sqlObj:
             plt.plot(main[keyword].keys(),main[keyword].values(),label=keyword)
         plt.legend()
         fig.tight_layout()
-        plt.savefig("keyword_freq")
+        plt.savefig("results/keyword_freq")
         plt.show()
     
     def kMostCommon(self,k=10):
@@ -75,18 +82,18 @@ class sqlObj:
         plt.bar(list(sorted_d.keys())[:k], list(sorted_d.values())[:k])
         plt.xticks(rotation=45,ha="right")
         fig.tight_layout()
-        plt.savefig("contact_freq")
+        plt.savefig("results/contact_freq")
         plt.show()
 
     def compareMessageNums(self,number):
         _ = self.curs.execute('select ROWID from handle where id="'+number+'"')
-        ids = tuple([val[0] for val in self.curs.fetchall()])
+        ids = [str(val[0]) for val in self.curs.fetchall()]
         assert len(ids) > 0, "Number: {} not in database".format(number)
 
         _ = self.curs.execute(
             'select datetime(message.date/1000000000 + strftime("%s", \
                 "2001-01-01") ,"unixepoch","localtime") as date_utc, \
-                text, is_from_me from message where handle_id in '+str(ids))
+                text, is_from_me from message where handle_id in ('+','.join(ids)+')')
         rows = self.curs.fetchall()
         new_rows = []
         for row in rows:
@@ -115,18 +122,18 @@ class sqlObj:
         plt.plot(res[number].keys(),res[number].values(),label=number)
         plt.legend()
         fig.tight_layout()
-        plt.savefig("message_num")
+        plt.savefig("results/message_num")
         plt.show()
 
     def compareMessageLengths(self,number):
         _ = self.curs.execute('select ROWID from handle where id="'+number+'"')
-        ids = tuple([val[0] for val in self.curs.fetchall()])
+        ids = [str(val[0]) for val in self.curs.fetchall()]
         assert len(ids) > 0, "Number: {} not in database".format(number)
 
         _ = self.curs.execute(
             'select datetime(message.date/1000000000 + strftime("%s", \
                 "2001-01-01") ,"unixepoch","localtime") as date_utc, \
-                text, is_from_me from message where handle_id in '+str(ids))
+                text, is_from_me from message where handle_id in ('+','.join(ids)+')')
         rows = self.curs.fetchall()
         new_rows = []
         for row in rows:
@@ -155,8 +162,35 @@ class sqlObj:
         plt.plot(res[number].keys(), res[number].values(), label=number)
         plt.legend()
         fig.tight_layout()
-        plt.savefig("message_len")
+        plt.savefig("results/message_len")
         plt.show()
+
+    def mostCommonEmojis(self,number):
+        _ = self.curs.execute('select ROWID from handle where id="'+number+'"')
+        ids = [str(val[0]) for val in self.curs.fetchall()]
+        assert len(ids) > 0, "Number: {} not in database".format(number)
+
+        _ = self.curs.execute(
+            'select text, is_from_me from message where handle_id in ('+','.join(ids)+')')
+        
+        rows = self.curs.fetchall()
+        res = {"Me":Counter(),number:Counter()}
+        for row in rows:
+            if row[1]:
+                res["Me"] += Counter(self.getEmojis(row[0]))
+            else:
+                res[number] += Counter(self.getEmojis(row[0]))
+        
+        res["Me"] = dict(sorted(res["Me"].items(),key=lambda kv: kv[1],reverse=True))
+        res[number] = dict(sorted(res[number].items(),key=lambda kv: kv[1],reverse=True))
+        
+        print("\nMy emoji usage:")
+        print(tabulate([[emj, count] for emj, count in list(
+            res["Me"].items())[:10]],headers=["Emoji","Count"]))
+        print("\n"+number+" emoji usage:")
+        print(tabulate([[emj, count] for emj, count in list(
+            res[number].items())[:10]], headers=["Emoji","Count"]))
+        print("\n")
 
     def getAllMessages(self):
         self.curs.execute(
