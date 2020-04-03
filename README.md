@@ -43,4 +43,5 @@ In order to see the most frequently used emojis sent to and received by a number
 s.mostCommonEmojis(number="+123456789012")
 ```
 ![alt text](samples/sample5.png)
+
 (matplotlib has issues plotting emojis, so output is printed to the terminal)
