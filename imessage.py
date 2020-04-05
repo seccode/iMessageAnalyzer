@@ -7,12 +7,56 @@ from collections import defaultdict, OrderedDict, Counter
 import numpy as np
 import emoji
 from tabulate import tabulate
+from nltk.sentiment import SentimentAnalyzer
 
 class sqlObj:
     def __init__(self):
         db = "/Users/"+os.getlogin()+"/Library/Messages/chat.db"
         con = sqlite3.connect(db)
         self.curs = con.cursor()
+        self.columns = {
+            "date":'datetime(message.date/1000000000 + strftime("%s", \
+                    "2001-01-01"), "unixepoch", "localtime") as date_utc',
+            "text":'text',
+            "is_from_me":'is_from_me',
+            "handle_id":'handle_id',
+            "ROWID": 'ROWID',
+            "id": 'id'
+        }
+
+    def query(self,date=None,text=None,is_from_me=None,handle_id=None,
+                ROWID=None,id_=None,table="message",condition=None):
+        assert table in ["message","handle"], "Invalid table, must be either \
+                                                'message' or 'handle'"
+        if table == "message":
+            assert any([date,text,is_from_me,handle_id]), "No columns \
+                                                            selected from \
+                                                            'message' table"
+        else:
+            assert any([ROWID,id_]), "No columns selected from 'handle' table"
+        
+        cols = ','.join([x for x, y in zip(self.columns.values(),
+                                            [date,text,is_from_me,
+                                             handle_id, ROWID, id_]) if y])
+
+        if condition:
+            query = 'select ' + cols + ' from ' + table + ' where ' + condition
+        else:
+            query = 'select ' + cols + ' from ' + table
+
+        self.curs.execute(query)
+        return self.curs.fetchall()
+    
+    def getHandleIds(self,number=None):
+        if number:
+            handle_rows = self.query(ROWID=True, table="handle",
+                                    condition='id="'+number+'"')
+        else:
+            handle_rows = self.query(ROWID=True, table="handle")
+
+        ids = [str(val[0]) for val in handle_rows]
+        assert len(ids) > 0, "Number: {} not in database".format(number)
+        return ids
 
     def getEmojis(self,s):
         if not s:
@@ -24,23 +68,21 @@ class sqlObj:
 
         if number:
             assert type(number) == str, "Number must be a string"
-            _ = self.curs.execute('select ROWID from handle where id="'+number+'"')
-            ids = [str(val[0]) for val in self.curs.fetchall()]
+            handle_rows = self.query(ROWID=True,table="handle",
+                                        condition='id='+number)
+            ids = [str(val[0]) for val in handle_rows]
             assert len(ids) > 0, "Number: {} not in database".format(number)
         else:
-            _ = self.curs.execute('select ROWID from handle')
-            ids = [str(val[0]) for val in self.curs.fetchall()]
+            handle_rows = self.query(ROWID=True,table="handle")
+            ids = [str(val[0]) for val in handle_rows]
             assert len(ids) > 0, "No numbers in database"
         
+        rows = self.query(date=True, text=True,
+                          condition='handle_id in ('+','.join(ids)+')')
+
         main = dict.fromkeys(keywords)
         for keyword in keywords:
             res = defaultdict(int)
-            self.curs.execute(
-                'select datetime(message.date/1000000000 + strftime("%s", \
-                "2001-01-01") ,"unixepoch","localtime") as date_utc, \
-                text from message where handle_id in ('+','.join(ids)+')')
-
-            rows = self.curs.fetchall()
             for row in rows:
                 if row[1] and keyword in row[1].lower():
                     d = [int(v) for v in row[0].split(' ')[0].split('-')]
@@ -63,17 +105,16 @@ class sqlObj:
         plt.show()
     
     def kMostCommon(self,k=10):
-        _ = self.curs.execute('select ROWID, id from handle')
-        ids = dict(self.curs.fetchall())
-        self.curs.execute(
-            'select handle_id from message')
-        rows = self.curs.fetchall()
+        ids = dict(self.query(ROWID=True,id_=True,table="handle"))
+        rows = self.query(handle_id=True)
+
         res = dict.fromkeys(list(set(ids.values())),0)
         for row in rows:
             if row[0] in ids:
                 res[ids[row[0]]] += 1
 
-        sorted_d = OrderedDict(sorted(res.items(), key=lambda kv: kv[1],reverse=True))
+        sorted_d = OrderedDict(sorted(res.items(), key=lambda kv: kv[1],
+                                        reverse=True))
 
         fig, ax = plt.subplots()
         plt.title("Contact Frequency")
@@ -86,15 +127,11 @@ class sqlObj:
         plt.show()
 
     def compareMessageNums(self,number):
-        _ = self.curs.execute('select ROWID from handle where id="'+number+'"')
-        ids = [str(val[0]) for val in self.curs.fetchall()]
-        assert len(ids) > 0, "Number: {} not in database".format(number)
+        ids = self.getHandleIds(number)
 
-        _ = self.curs.execute(
-            'select datetime(message.date/1000000000 + strftime("%s", \
-                "2001-01-01") ,"unixepoch","localtime") as date_utc, \
-                text, is_from_me from message where handle_id in ('+','.join(ids)+')')
-        rows = self.curs.fetchall()
+        rows = self.query(date=True,text=True,is_from_me=True,
+                            condition='handle_id in ('+','.join(ids)+')')
+
         new_rows = []
         for row in rows:
             d = [int(v) for v in row[0].split(' ')[0].split('-')]
@@ -126,15 +163,11 @@ class sqlObj:
         plt.show()
 
     def compareMessageLengths(self,number):
-        _ = self.curs.execute('select ROWID from handle where id="'+number+'"')
-        ids = [str(val[0]) for val in self.curs.fetchall()]
-        assert len(ids) > 0, "Number: {} not in database".format(number)
+        ids = self.getHandleIds(number)
 
-        _ = self.curs.execute(
-            'select datetime(message.date/1000000000 + strftime("%s", \
-                "2001-01-01") ,"unixepoch","localtime") as date_utc, \
-                text, is_from_me from message where handle_id in ('+','.join(ids)+')')
-        rows = self.curs.fetchall()
+        rows = self.query(date=True,text=True,is_from_me=True,
+                            condition='handle_id in ('+','.join(ids)+')')
+
         new_rows = []
         for row in rows:
             d = [int(v) for v in row[0].split(' ')[0].split('-')]
@@ -166,14 +199,11 @@ class sqlObj:
         plt.show()
 
     def mostCommonEmojis(self,number):
-        _ = self.curs.execute('select ROWID from handle where id="'+number+'"')
-        ids = [str(val[0]) for val in self.curs.fetchall()]
-        assert len(ids) > 0, "Number: {} not in database".format(number)
+        ids = self.getHandleIds(number)
 
-        _ = self.curs.execute(
-            'select text, is_from_me from message where handle_id in ('+','.join(ids)+')')
-        
-        rows = self.curs.fetchall()
+        rows = self.query(text=True,is_from_me=True,
+                            condition='handle_id in ('+','.join(ids)+')')
+
         res = {"Me":Counter(),number:Counter()}
         for row in rows:
             if row[1]:
@@ -181,8 +211,10 @@ class sqlObj:
             else:
                 res[number] += Counter(self.getEmojis(row[0]))
         
-        res["Me"] = dict(sorted(res["Me"].items(),key=lambda kv: kv[1],reverse=True))
-        res[number] = dict(sorted(res[number].items(),key=lambda kv: kv[1],reverse=True))
+        res["Me"] = dict(sorted(res["Me"].items(),key=lambda kv: kv[1],
+                                reverse=True))
+        res[number] = dict(sorted(res[number].items(),key=lambda kv: kv[1],
+                                    reverse=True))
         
         print("\nMy emoji usage:")
         print(tabulate([[emj, count] for emj, count in list(
@@ -192,21 +224,32 @@ class sqlObj:
             res[number].items())[:10]], headers=["Emoji","Count"]))
         print("\n")
 
-    def getAllMessages(self):
-        self.curs.execute(
-            'select datetime(message.date/1000000000 + strftime("%s", \
-            "2001-01-01") ,"unixepoch","localtime") as date_utc, \
-            text from message')
-        rows = self.curs.fetchall()
-        ret = {}
-        for row in rows:
-            ret[row[0]] = row[1]
-        return ret
+    def sentimentAnalysis(self,number):
+        ids = self.getHandleIds(number)
+
+        rows = self.query(date=True,text=True,is_from_me=True,
+                        condition='handle_id in ('+','.join(ids)+')')
+
+        sent_analyzer = SentimentAnalyzer()
+
+        res = {"Me":{},number:{}}
+
+        plt.title("Sentiment Analysis")
+        plt.ylabel("Sentiment")
+        plt.xlabel("Date")
+        plt.legend()
+        plt.savefig("results/sentiment")
+        plt.show()
+
+    def timeOfDay(self,number):
+        return
+
 
 if __name__ == "__main__":
     s = sqlObj()
+    res = s.query(date=True,text=True,condition='handle_id in (430)')
     # s.keywordFreq(["hey"])
-    s.kMostCommon(k=10)
+    # s.kMostCommon(k=10)
     # s.compareMessageNums("+12345678901")
     # s.compareMessageLengths("+12345678901")
     #res = s.getAllMessages()
